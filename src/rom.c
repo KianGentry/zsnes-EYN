@@ -45,6 +45,24 @@ static rom_format_t rom_detect_from_extension(const char *path) {
     return ROM_FORMAT_UNKNOWN;
 }
 
+static ssize_t rom_read_full(int fd, uint8_t *buffer, size_t size) {
+    size_t total_read = 0;
+
+    while (total_read < size) {
+        ssize_t chunk = read(fd, buffer + total_read, size - total_read);
+        if (chunk < 0) {
+            return -1;
+        }
+        if (chunk == 0) {
+            break;
+        }
+
+        total_read += (size_t)chunk;
+    }
+
+    return (ssize_t)total_read;
+}
+
 rom_format_t rom_detect_format(const uint8_t *data, size_t size, const char *path) {
     if (!data || size < 0x8000)
         return ROM_FORMAT_UNKNOWN;
@@ -139,7 +157,7 @@ int rom_load(zsnes_emu_t *emu, const char *path) {
     }
 
     /* Read ROM data */
-    ssize_t bytes_read = read(fd, buffer, size);
+    ssize_t bytes_read = rom_read_full(fd, buffer, (size_t)size);
     close(fd);
 
     if (bytes_read != size) {
