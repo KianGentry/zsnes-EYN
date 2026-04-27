@@ -1,7 +1,7 @@
 {
   "name": "zsnes_1_51",
   "display_name": "ZSNES - Super Nintendo Emulator",
-  "version": "1.51-eyn-port",
+  "version": "151",
   "description": "ZSNES SNES emulator port for EYN-OS. Emulates 65816 CPU, PPU graphics, and SPC700 audio.",
   "author": "bearoso (original ZSNES), EYN-OS port",
   "license": "GPL v2 (original) / UNLICENSE (port modifications)",
