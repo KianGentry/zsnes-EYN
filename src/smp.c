@@ -176,6 +176,9 @@ int smp_execute_cycle(zsnes_emu_t *emu) {
     return smp_execute_instruction(emu);
 }
 
+/* Forward declaration */
+static int smp_output_audio(int16_t *samples, uint32_t count);
+
 int smp_generate_frame(zsnes_emu_t *emu) {
     if (!emu)
         return -1;
