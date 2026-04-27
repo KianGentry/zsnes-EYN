@@ -17,8 +17,121 @@
 
 /* Audio buffer for PCM samples */
 #define AUDIO_BUFFER_SIZE (8192)  /* Samples per frame */
+#define SAMPLE_RATE (32000)       /* 32 kHz audio output */
 static int16_t audio_buffer[AUDIO_BUFFER_SIZE];
 static uint32_t audio_write_pos = 0;
+
+/* 6502 CPU flags (SMP uses 6502, not 65816) */
+#define FLAG_N  0x80  /* Negative */
+#define FLAG_V  0x40  /* Overflow */
+#define FLAG_B  0x10  /* Break */
+#define FLAG_D  0x08  /* Decimal mode */
+#define FLAG_I  0x04  /* Interrupt disable */
+#define FLAG_Z  0x02  /* Zero */
+#define FLAG_C  0x01  /* Carry */
+
+#define GET_FLAG(f) (emu->smp.p & (f))
+#define SET_FLAG(f) (emu->smp.p |= (f))
+#define CLR_FLAG(f) (emu->smp.p &= ~(f))
+
+/* 6502 instruction execution for SMP */
+static int smp_execute_instruction(zsnes_emu_t *emu) {
+    uint8_t opcode = emu->smp_ram[emu->smp.pc];
+    emu->smp.pc++;
+    int cycles = 2;
+
+    /* Simplified 6502 instruction set (subset) */
+    switch (opcode) {
+        case 0xEA:  /* NOP */
+            cycles = 2;
+            break;
+
+        case 0x18:  /* CLC */
+            CLR_FLAG(FLAG_C);
+            cycles = 2;
+            break;
+
+        case 0x38:  /* SEC */
+            SET_FLAG(FLAG_C);
+            cycles = 2;
+            break;
+
+        case 0x58:  /* CLI */
+            CLR_FLAG(FLAG_I);
+            cycles = 2;
+            break;
+
+        case 0x78:  /* SEI */
+            SET_FLAG(FLAG_I);
+            cycles = 2;
+            break;
+
+        case 0xD8:  /* CLD */
+            CLR_FLAG(FLAG_D);
+            cycles = 2;
+            break;
+
+        case 0xF8:  /* SED */
+            SET_FLAG(FLAG_D);
+            cycles = 2;
+            break;
+
+        case 0xAA:  /* TAX */
+            emu->smp.x = emu->smp.a;
+            if (emu->smp.x == 0) SET_FLAG(FLAG_Z);
+            else CLR_FLAG(FLAG_Z);
+            if (emu->smp.x & 0x80) SET_FLAG(FLAG_N);
+            else CLR_FLAG(FLAG_N);
+            cycles = 2;
+            break;
+
+        case 0xA8:  /* TAY */
+            emu->smp.y = emu->smp.a;
+            if (emu->smp.y == 0) SET_FLAG(FLAG_Z);
+            else CLR_FLAG(FLAG_Z);
+            if (emu->smp.y & 0x80) SET_FLAG(FLAG_N);
+            else CLR_FLAG(FLAG_N);
+            cycles = 2;
+            break;
+
+        case 0x8A:  /* TXA */
+            emu->smp.a = emu->smp.x;
+            if (emu->smp.a == 0) SET_FLAG(FLAG_Z);
+            else CLR_FLAG(FLAG_Z);
+            if (emu->smp.a & 0x80) SET_FLAG(FLAG_N);
+            else CLR_FLAG(FLAG_N);
+            cycles = 2;
+            break;
+
+        case 0x98:  /* TYA */
+            emu->smp.a = emu->smp.y;
+            if (emu->smp.a == 0) SET_FLAG(FLAG_Z);
+            else CLR_FLAG(FLAG_Z);
+            if (emu->smp.a & 0x80) SET_FLAG(FLAG_N);
+            else CLR_FLAG(FLAG_N);
+            cycles = 2;
+            break;
+
+        case 0xA9:  /* LDA immediate */
+        {
+            emu->smp.a = emu->smp_ram[emu->smp.pc];
+            emu->smp.pc++;
+            if (emu->smp.a == 0) SET_FLAG(FLAG_Z);
+            else CLR_FLAG(FLAG_Z);
+            if (emu->smp.a & 0x80) SET_FLAG(FLAG_N);
+            else CLR_FLAG(FLAG_N);
+            cycles = 2;
+            break;
+        }
+
+        default:
+            /* For unknown opcodes, just skip */
+            cycles = 2;
+            break;
+    }
+
+    return cycles;
+}
 
 int smp_init(zsnes_emu_t *emu) {
     if (!emu)
@@ -60,46 +173,36 @@ int smp_execute_cycle(zsnes_emu_t *emu) {
     if (!emu)
         return -1;
 
-    /* TODO: Implement 6502 CPU cycle for SMP
-     *
-     * The SMP is a 6502-compatible processor that handles:
-     * - DSP register access (voice control, pitch, volume, ADSR)
-     * - Timer operations
-     * - Port I/O with main CPU
-     *
-     * The SMP runs asynchronously from the main CPU but must be
-     * synchronized for proper audio timing.
-     */
-
-    return 0;
+    return smp_execute_instruction(emu);
 }
 
 int smp_generate_frame(zsnes_emu_t *emu) {
     if (!emu)
         return -1;
 
-    /* TODO: Generate audio samples for one complete frame
+    /* Generate audio samples for one complete frame
      *
-     * Steps:
-     * 1. For each DSP voice (0-7):
-     *    - Load sample rate and pitch from voice registers
-     *    - Generate audio samples for the frame
-     *    - Apply ADSR envelope
-     * 2. Mix all 8 voices into mono or stereo output
-     * 3. Apply global volume and pan
-     * 4. Write samples to audio_buffer
-     * 5. Call smp_output_audio() to send to EYN-OS
-     *
-     * Sample rate: 32000 Hz or 44100 Hz (typically 32000 for SNES)
-     * Samples per frame: ~534 @ 32000 Hz, 59.727 Hz
+     * The SMP runs at a different clock rate than the main CPU.
+     * For now, we'll generate silence as a placeholder.
+     * A full implementation would:
+     * 1. For each of 8 DSP voices:
+     *    - Load BRR (Bit Rate Reduction) compressed sample data
+     *    - Apply pitch and envelope (ADSR)
+     *    - Generate PCM samples
+     * 2. Mix voices together
+     * 3. Apply effects (echo, reverb)
+     * 4. Output to audio system
      */
 
-    /* Placeholder: fill buffer with silence */
-    memset(audio_buffer, 0, sizeof(audio_buffer));
-    audio_write_pos = AUDIO_BUFFER_SIZE;
+    /* Calculate samples needed for one frame at 32 kHz */
+    /* NTSC: 32000 Hz / 59.727 Hz = ~535 samples per frame */
+    uint32_t samples_per_frame = SAMPLE_RATE / 60;  /* Approximate */
 
-    /* Output audio to system */
-    if (smp_output_audio(audio_buffer, AUDIO_BUFFER_SIZE) < 0) {
+    /* Fill with silence for now */
+    memset(audio_buffer, 0, samples_per_frame * sizeof(int16_t));
+
+    /* Output to EYN-OS audio system */
+    if (smp_output_audio(audio_buffer, samples_per_frame) < 0) {
         fprintf(stderr, "Warning: Audio output failed\n");
     }
 
@@ -112,10 +215,9 @@ static int smp_output_audio(int16_t *samples, uint32_t count) {
      *
      * This should use the AUDIO_WRITE_BULK syscall to stream samples:
      *
-     * syscall(AUDIO_WRITE_BULK, (intptr_t)samples, count);
-     *
-     * Or if bulk is unavailable, use AUDIO_WRITE in a loop.
-     * Handle audio underruns and buffer management.
+     * For now, this is a no-op since we're generating silence anyway.
+     * A real implementation would call:
+     *   syscall(AUDIO_WRITE_BULK, (intptr_t)samples, count);
      */
 
     (void)samples;

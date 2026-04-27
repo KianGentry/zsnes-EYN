@@ -15,6 +15,32 @@
 #include <gui.h>
 #include "ppu.h"
 
+/* PPU register access helpers */
+#define PPU_REG_INIDISP         0x00  /* Screen display */
+#define PPU_REG_OBJSEL          0x01  /* Object selection */
+#define PPU_REG_OAMADDL         0x02  /* OAM address (low) */
+#define PPU_REG_OAMADDH         0x03  /* OAM address (high) */
+#define PPU_REG_BGMODE          0x05  /* Background mode */
+#define PPU_REG_MOSAIC          0x06  /* Mosaic control */
+#define PPU_REG_BG1SC           0x07  /* BG1 tilemap size/address */
+#define PPU_REG_BG2SC           0x08  /* BG2 tilemap size/address */
+#define PPU_REG_BG3SC           0x09  /* BG3 tilemap size/address */
+#define PPU_REG_BG4SC           0x0A  /* BG4 tilemap size/address */
+#define PPU_REG_BG12NBA         0x0B  /* BG1/2 tile data address */
+#define PPU_REG_BG34NBA         0x0C  /* BG3/4 tile data address */
+
+static uint8_t scale_color_to_8bit(uint16_t color_555) {
+    /* Convert 15-bit SNES color (5R5G5B) to 8-bit grayscale for simple rendering
+     * In a full implementation, this would output RGB directly to GUI
+     */
+    uint8_t r = (color_555 & 0x1F) << 3;
+    uint8_t g = ((color_555 >> 5) & 0x1F) << 3;
+    uint8_t b = ((color_555 >> 10) & 0x1F) << 3;
+
+    /* Simple luminance calculation */
+    return (r * 299 + g * 587 + b * 114) / 1000;
+}
+
 int ppu_init(zsnes_emu_t *emu) {
     if (!emu)
         return -1;
@@ -64,23 +90,41 @@ int ppu_render_frame(zsnes_emu_t *emu) {
     if (!emu)
         return -1;
 
-    /* TODO: Convert 256x224 framebuffer to GUI format and render
+    /* Render the 256x224 SNES framebuffer to the GUI window
      *
-     * The framebuffer is 256x224 pixels in 15-bit RGB format.
-     * This function should:
-     * 1. Scale/filter the framebuffer to fit the GUI window
-     * 2. Use gui_* functions to draw the scaled output
-     * 3. Handle color format conversion if needed
+     * Steps:
+     * 1. For each scanline:
+     *    - Fetch tile data and palette indices from VRAM
+     *    - Composite layers, sprites, color math
+     *    - Write final pixel data to framebuffer
+     * 2. Scale framebuffer to window size (typically 2x or 4x)
+     * 3. Call gui_draw_text() or pixel-by-pixel rendering to display
      *
-     * For now, just clear the screen to demonstrate GUI integration.
+     * For now, we'll fill the framebuffer with a test pattern
+     * (moving stripes to verify rendering works)
      */
 
-    /* Placeholder: clear with dark color */
+    static uint32_t frame_counter = 0;
+    frame_counter++;
+
+    /* Generate a simple test pattern: alternating horizontal stripes */
     for (int y = 0; y < SNES_HEIGHT; y++) {
+        uint16_t color = ((frame_counter / 10) + (y / 8)) % 2 ? 0x001F : 0x7C00;
         for (int x = 0; x < SNES_WIDTH; x++) {
-            emu->ppu.framebuffer[y * SNES_WIDTH + x] = 0x0000;  /* Black */
+            emu->ppu.framebuffer[y * SNES_WIDTH + x] = color;
         }
     }
+
+    /* TODO: Draw framebuffer to GUI window
+     *
+     * For now, this is just buffering. The actual drawing happens
+     * in the main loop when gui_present() is called.
+     *
+     * A full implementation would:
+     * 1. Convert 256x224 -> 512x448 (2x scaling) or to window size
+     * 2. Call gui_draw_text() for each scanline or use pixel drawing
+     * 3. Handle window resizing
+     */
 
     return 0;
 }
