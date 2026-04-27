@@ -72,7 +72,7 @@ include/
   smp.h          — Audio processor interface
   rom.h          — ROM format definitions
 
-zsnes_uelf.c     — EYN-OS entry point and main emulation loop
+zsnes_1_51_uelf.c — EYN-OS entry point and main emulation loop
 ```
 
 ## Source Provenance

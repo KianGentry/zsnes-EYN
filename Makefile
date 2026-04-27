@@ -7,7 +7,7 @@
 #   i686-elf-gcc -m32 -ffreestanding -fno-builtin \
 #     -I../../userland/include \
 #     -Iinclude \
-#     src/rom.c src/cpu.c src/ppu.c src/smp.c zsnes_uelf.c \
+#     src/rom.c src/cpu.c src/ppu.c src/smp.c zsnes_1_51_uelf.c \
 #     -o zsnes_1_51.elf \
 #     -T../../devtools/user_elf32.ld \
 #     -nostdlib
@@ -21,7 +21,7 @@ CFLAGS = -m32 -ffreestanding -fno-builtin -fno-pie -fno-pic -fno-plt \
 INCLUDE = -Iinclude -I../../userland/include
 LDFLAGS = -T../../devtools/user_elf32.ld -nostdlib
 
-SRC = zsnes_uelf.c src/rom.c src/cpu.c src/ppu.c src/smp.c
+SRC = zsnes_1_51_uelf.c src/rom.c src/cpu.c src/ppu.c src/smp.c
 OBJ = $(SRC:.c=.o)
 TARGET = zsnes_1_51.elf
 

@@ -26,7 +26,7 @@ The port is organized as follows:
 
 ```
 zsnes_1_51/
-├── zsnes_uelf.c              (EYN-OS entry point, UNLICENSE)
+├── zsnes_1_51_uelf.c         (EYN-OS entry point, UNLICENSE)
 ├── src/
 │   ├── cpu.c                 (CPU emulation, GPL v2 origin)
 │   ├── ppu.c                 (Graphics, GPL v2 origin)
