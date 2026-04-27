@@ -116,7 +116,7 @@ int rom_load(zsnes_emu_t *emu, const char *path) {
     /* Open ROM file */
     int fd = open(path, O_RDONLY);
     if (fd < 0) {
-        perror("open");
+        fprintf(stderr, "Error: Failed to open ROM file\n");
         return -1;
     }
 
