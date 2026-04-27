@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <eynos_syscall.h>
 #include "smp.h"
 
 /* Audio buffer for PCM samples */
@@ -152,11 +153,10 @@ int smp_init(zsnes_emu_t *emu) {
     memset(audio_buffer, 0, sizeof(audio_buffer));
     audio_write_pos = 0;
 
-    /* TODO: Initialize EYN-OS audio output via AUDIO_INIT syscall
-     *
-     * This should set up the AC97 or other audio device for output.
-     * The AUDIO_INIT syscall may return audio device capabilities.
-     */
+    /* Initialize system audio */
+    if (eyn_sys_audio_init() != 0) {
+        fprintf(stderr, "Warning: audio init failed or audio not available\n");
+    }
 
     printf("SMP initialized\n");
     return 0;
@@ -211,19 +211,17 @@ int smp_generate_frame(zsnes_emu_t *emu) {
 }
 
 static int smp_output_audio(int16_t *samples, uint32_t count) {
-    /* TODO: Output audio samples to EYN-OS
-     *
-     * This should use the AUDIO_WRITE_BULK syscall to stream samples:
-     *
-     * For now, this is a no-op since we're generating silence anyway.
-     * A real implementation would call:
-     *   syscall(AUDIO_WRITE_BULK, (intptr_t)samples, count);
-     */
+    /* Use the provided helper to write bulk audio bytes to the system */
+    if (!samples || count == 0)
+        return -1;
 
-    (void)samples;
-    (void)count;
-
-    return 0;
+    /* Write raw PCM16 samples (mono) as bytes */
+    int bytes = (int)(count * sizeof(int16_t));
+    int rc = eyn_sys_audio_write_bulk((const void*)samples, bytes);
+    if (rc < 0) {
+        return -1;
+    }
+    return rc;
 }
 
 void smp_set_sample_rate(uint32_t rate) {

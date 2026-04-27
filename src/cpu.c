@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "cpu.h"
+#include <gui.h>
 
 /* 65816 instruction table - opcode dispatch
  * Each entry describes: opcode, name, addressing mode, operation type
@@ -425,18 +426,20 @@ void cpu_handle_keydown(zsnes_emu_t *emu, uint8_t key) {
      */
 
     switch (key) {
-        case 0x26:  /* Up arrow */
+        /* GUI keycodes */
+        case GUI_KEY_UP:
             emu->controller1 |= BUTTON_UP;
             break;
-        case 0x28:  /* Down arrow */
+        case GUI_KEY_DOWN:
             emu->controller1 |= BUTTON_DOWN;
             break;
-        case 0x25:  /* Left arrow */
+        case GUI_KEY_LEFT:
             emu->controller1 |= BUTTON_LEFT;
             break;
-        case 0x27:  /* Right arrow */
+        case GUI_KEY_RIGHT:
             emu->controller1 |= BUTTON_RIGHT;
             break;
+        /* ASCII keys fallback */
         case 'z': case 'Z':
             emu->controller1 |= BUTTON_B;
             break;
@@ -455,7 +458,7 @@ void cpu_handle_keydown(zsnes_emu_t *emu, uint8_t key) {
         case 'w': case 'W':
             emu->controller1 |= BUTTON_R;
             break;
-        case 0x0D:  /* Return */
+        case '\r':  /* Return */
             emu->controller1 |= BUTTON_START;
             break;
         case ' ':  /* Space */
@@ -473,16 +476,16 @@ void cpu_handle_keyup(zsnes_emu_t *emu, uint8_t key) {
     /* Release controller button state */
 
     switch (key) {
-        case 0x26:  /* Up arrow */
+        case GUI_KEY_UP:
             emu->controller1 &= ~BUTTON_UP;
             break;
-        case 0x28:  /* Down arrow */
+        case GUI_KEY_DOWN:
             emu->controller1 &= ~BUTTON_DOWN;
             break;
-        case 0x25:  /* Left arrow */
+        case GUI_KEY_LEFT:
             emu->controller1 &= ~BUTTON_LEFT;
             break;
-        case 0x27:  /* Right arrow */
+        case GUI_KEY_RIGHT:
             emu->controller1 &= ~BUTTON_RIGHT;
             break;
         case 'z': case 'Z':
@@ -503,10 +506,10 @@ void cpu_handle_keyup(zsnes_emu_t *emu, uint8_t key) {
         case 'w': case 'W':
             emu->controller1 &= ~BUTTON_R;
             break;
-        case 0x0D:  /* Return */
+        case '\r':
             emu->controller1 &= ~BUTTON_START;
             break;
-        case ' ':  /* Space */
+        case ' ':
             emu->controller1 &= ~BUTTON_SELECT;
             break;
         default:

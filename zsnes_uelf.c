@@ -163,21 +163,23 @@ static int emulation_loop(void) {
         gui_draw_char(gui_handle, &char_cmd);
 
         /* Process input events */
-        while (1) {
-            /* Poll for events - gui_*() functions likely don't block
-             * We'd need to check the actual implementation
-             */
-            gui_event_t evt = {0};
-            
-            /* For now, assume event polling happens during gui_begin/present
-             * A real implementation would have gui_poll_event()
-             * or similar for non-blocking input
-             */
-
-            /* Since we don't have a direct event polling function in the header,
-             * we'll skip event handling for now and add it when the API is clear
-             */
-            break;  /* No more events */
+        gui_event_t ev;
+        while (gui_poll_event(gui_handle, &ev) > 0) {
+            switch (ev.type) {
+                case GUI_EVENT_KEY:
+                    /* Key press */
+                    cpu_handle_keydown(emu, (uint8_t)ev.a);
+                    break;
+                case GUI_EVENT_KEY_UP:
+                    /* Key release */
+                    cpu_handle_keyup(emu, (uint8_t)ev.a);
+                    break;
+                case GUI_EVENT_CLOSE:
+                    running = 0;
+                    break;
+                default:
+                    break;
+            }
         }
 
         /* Present frame to display */
