@@ -47,9 +47,11 @@ static rom_format_t rom_detect_from_extension(const char *path) {
 
 static ssize_t rom_read_full(int fd, uint8_t *buffer, size_t size) {
     size_t total_read = 0;
+    size_t chunk_size = 32 * 1024;  /* Read in 32KB chunks to work around syscall limits */
 
     while (total_read < size) {
-        ssize_t chunk = read(fd, buffer + total_read, size - total_read);
+        size_t to_read = (size - total_read < chunk_size) ? (size - total_read) : chunk_size;
+        ssize_t chunk = read(fd, buffer + total_read, to_read);
         if (chunk < 0) {
             return -1;
         }
