@@ -29,6 +29,7 @@
 #define PPU_REG_BG12NBA         0x0B  /* BG1/2 tile data address */
 #define PPU_REG_BG34NBA         0x0C  /* BG3/4 tile data address */
 
+static uint8_t scale_color_to_8bit(uint16_t color_555) __attribute__((unused));
 static uint8_t scale_color_to_8bit(uint16_t color_555) {
     /* Convert 15-bit SNES color (5R5G5B) to 8-bit grayscale for simple rendering
      * In a full implementation, this would output RGB directly to GUI
@@ -90,41 +91,10 @@ int ppu_render_frame(zsnes_emu_t *emu) {
     if (!emu)
         return -1;
 
-    /* Render the 256x224 SNES framebuffer to the GUI window
-     *
-     * Steps:
-     * 1. For each scanline:
-     *    - Fetch tile data and palette indices from VRAM
-     *    - Composite layers, sprites, color math
-     *    - Write final pixel data to framebuffer
-     * 2. Scale framebuffer to window size (typically 2x or 4x)
-     * 3. Call gui_draw_text() or pixel-by-pixel rendering to display
-     *
-     * For now, we'll fill the framebuffer with a test pattern
-     * (moving stripes to verify rendering works)
+    /* The SNES renderer is still a stub. Keep the framebuffer stable so the
+     * GUI does not flash a synthetic test pattern while the emulator core runs.
      */
-
-    static uint32_t frame_counter = 0;
-    frame_counter++;
-
-    /* Generate a simple test pattern: alternating horizontal stripes */
-    for (int y = 0; y < SNES_HEIGHT; y++) {
-        uint16_t color = ((frame_counter / 10) + (y / 8)) % 2 ? 0x001F : 0x7C00;
-        for (int x = 0; x < SNES_WIDTH; x++) {
-            emu->ppu.framebuffer[y * SNES_WIDTH + x] = color;
-        }
-    }
-
-    /* TODO: Draw framebuffer to GUI window
-     *
-     * For now, this is just buffering. The actual drawing happens
-     * in the main loop when gui_present() is called.
-     *
-     * A full implementation would:
-     * 1. Convert 256x224 -> 512x448 (2x scaling) or to window size
-     * 2. Call gui_draw_text() for each scanline or use pixel drawing
-     * 3. Handle window resizing
-     */
+    memset(emu->ppu.framebuffer, 0, sizeof(emu->ppu.framebuffer));
 
     return 0;
 }

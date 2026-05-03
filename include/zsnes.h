@@ -83,9 +83,12 @@ typedef struct {
     uint8_t  *data;                 /* ROM data */
     size_t   size;
     rom_format_t format;
+    size_t   header_size;           /* Optional copier header size */
+    uint16_t reset_vector;          /* CPU reset vector */
+    uint8_t  is_hirom;              /* 1 if ROM is HiROM-mapped */
     
     /* Cartridge header (parsed) */
-    char     title[21];             /* Game title */
+    char     title[22];             /* Game title plus terminator */
     uint8_t  map_mode;              /* Memory map mode */
     uint8_t  cartridge_type;        /* Cartridge type */
     uint8_t  rom_size_flag;         /* ROM size flag */

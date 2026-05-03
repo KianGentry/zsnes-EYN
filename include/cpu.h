@@ -26,7 +26,7 @@ void cpu_mem_write8(zsnes_emu_t *emu, uint32_t addr, uint8_t val);
 void cpu_mem_write16(zsnes_emu_t *emu, uint32_t addr, uint16_t val);
 
 /* Handle input events */
-void cpu_handle_keydown(zsnes_emu_t *emu, uint8_t key);
-void cpu_handle_keyup(zsnes_emu_t *emu, uint8_t key);
+void cpu_handle_keydown(zsnes_emu_t *emu, int key);
+void cpu_handle_keyup(zsnes_emu_t *emu, int key);
 
 #endif /* CPU_H */

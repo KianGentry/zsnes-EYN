@@ -28,6 +28,22 @@
 #define HEADER_MAGIC_OFFSET     0x1D
 #define HEADER_MAGIC_VALUE      0x33
 
+static size_t rom_detect_copier_header_size(size_t size) {
+    if (size > 512 && ((size - 512) % 0x8000) == 0) {
+        return 512;
+    }
+
+    return 0;
+}
+
+static int rom_header_is_plausible(const uint8_t *header) {
+    if (!header) {
+        return 0;
+    }
+
+    return header[HEADER_MAGIC_OFFSET] == HEADER_MAGIC_VALUE;
+}
+
 static rom_format_t rom_detect_from_extension(const char *path) {
     if (!path)
         return ROM_FORMAT_UNKNOWN;
@@ -69,13 +85,19 @@ rom_format_t rom_detect_format(const uint8_t *data, size_t size, const char *pat
     if (!data || size < 0x8000)
         return ROM_FORMAT_UNKNOWN;
 
-    /* Try to detect from header signature */
-    uint32_t offset = (size >= 0x10000) ? HEADER_OFFSET_HIROM : HEADER_OFFSET_LOROM;
-    if (offset < size) {
-        if (data[offset + HEADER_MAGIC_OFFSET] == HEADER_MAGIC_VALUE) {
-            /* Signature present; likely valid header */
-            return ROM_FORMAT_SFC;  /* Linear format */
-        }
+    size_t header_size = rom_detect_copier_header_size(size);
+
+    /* Try to detect from header signature, preferring LoROM because it is
+     * the common layout for the included test ROMs and many commercial carts.
+     */
+    if (header_size + HEADER_OFFSET_LOROM + HEADER_MAGIC_OFFSET < size &&
+        data[header_size + HEADER_OFFSET_LOROM + HEADER_MAGIC_OFFSET] == HEADER_MAGIC_VALUE) {
+        return ROM_FORMAT_SFC;
+    }
+
+    if (header_size + HEADER_OFFSET_HIROM + HEADER_MAGIC_OFFSET < size &&
+        data[header_size + HEADER_OFFSET_HIROM + HEADER_MAGIC_OFFSET] == HEADER_MAGIC_VALUE) {
+        return ROM_FORMAT_SFC;
     }
 
     /* Fall back to file extension */
@@ -86,47 +108,89 @@ int rom_parse_header(zsnes_emu_t *emu) {
     if (!emu || !emu->rom.data)
         return -1;
 
-    /* Determine header offset based on ROM size and format */
-    uint32_t offset;
-    if (emu->rom.size >= 0x10000 && emu->rom.format == ROM_FORMAT_SFC) {
-        offset = HEADER_OFFSET_HIROM;
-    } else {
-        offset = HEADER_OFFSET_LOROM;
+    /* Determine header offset by probing both common layouts. */
+    size_t header_size = emu->rom.header_size;
+    const uint8_t *header = NULL;
+    int is_hirom = 0;
+
+    if (header_size + HEADER_OFFSET_LOROM + 32 <= emu->rom.size) {
+        header = &emu->rom.data[header_size + HEADER_OFFSET_LOROM];
+        if (!rom_header_is_plausible(header) &&
+            header_size + HEADER_OFFSET_HIROM + 32 <= emu->rom.size) {
+            header = NULL;
+        }
     }
 
-    /* Ensure offset is within ROM bounds */
-    if (offset + 32 > emu->rom.size) {
-        fprintf(stderr, "Warning: ROM too small for header at offset 0x%X\n", offset);
+    if (!header && header_size + HEADER_OFFSET_HIROM + 32 <= emu->rom.size) {
+        header = &emu->rom.data[header_size + HEADER_OFFSET_HIROM];
+        is_hirom = 1;
+    }
+
+    if (!header) {
+        fprintf(stderr, "Warning: ROM too small or missing internal header\n");
         return -1;
     }
 
-    uint8_t *header = &emu->rom.data[offset];
-
     /* Extract title (21 bytes, zero-padded) */
     memcpy(emu->rom.title, header + HEADER_TITLE_OFFSET, HEADER_TITLE_LEN);
-    emu->rom.title[HEADER_TITLE_LEN] = '\0';
+    emu->rom.title[sizeof(emu->rom.title) - 1] = '\0';
 
     /* Extract cartridge type and size info */
     emu->rom.map_mode = header[HEADER_MAPMODE_OFFSET];
     emu->rom.cartridge_type = header[HEADER_TYPE_OFFSET];
     emu->rom.rom_size_flag = header[HEADER_ROMSIZE_OFFSET];
     emu->rom.ram_size_flag = header[HEADER_RAMSIZE_OFFSET];
+    emu->rom.is_hirom = (uint8_t)is_hirom;
+
+    /* Reset vector is stored near the end of the mapped ROM area. */
+    if (header_size + (is_hirom ? HEADER_OFFSET_HIROM : HEADER_OFFSET_LOROM) + 0x7FFE < emu->rom.size) {
+        uint32_t vector_base = header_size + (is_hirom ? HEADER_OFFSET_HIROM : HEADER_OFFSET_LOROM);
+        emu->rom.reset_vector = (uint16_t)(emu->rom.data[vector_base + 0x7FFC - (is_hirom ? HEADER_OFFSET_HIROM : HEADER_OFFSET_LOROM)] |
+                                           (emu->rom.data[vector_base + 0x7FFD - (is_hirom ? HEADER_OFFSET_HIROM : HEADER_OFFSET_LOROM)] << 8));
+    } else {
+        emu->rom.reset_vector = 0x8000;
+    }
 
     printf("ROM Loaded: %s\n", emu->rom.title);
-    printf("Map mode: 0x%02X, Cartridge type: 0x%02X\n", emu->rom.map_mode, emu->rom.cartridge_type);
+    printf("Map mode: 0x%02X, Cartridge type: 0x%02X, layout: %s, reset: 0x%04X\n",
+           emu->rom.map_mode,
+           emu->rom.cartridge_type,
+           is_hirom ? "HiROM" : "LoROM",
+           emu->rom.reset_vector);
 
     return 0;
 }
 
-int rom_deinterleave(uint8_t *data, size_t size) {
-    /* TODO: Implement SMC deinterleaving
-     *
-     * SMC format interleaves 16 KB blocks in a specific pattern.
-     * This function should de-interleave the data to produce linear ROM.
+size_t rom_deinterleave(uint8_t *data, size_t size) {
+    /* Typical SMC images store a 512-byte copier header, followed by
+     * 32 KiB chunks whose 16 KiB halves are swapped. Normalize that into
+     * linear ROM layout in-place.
      */
-    (void)data;
-    (void)size;
-    return 0;
+    if (!data || size < 0x8000) {
+        return 0;
+    }
+
+    size_t header_size = 0;
+    if (size > 512 && ((size - 512) % 0x8000) == 0) {
+        header_size = 512;
+    } else if ((size % 0x8000) != 0) {
+        return 0;
+    }
+
+    size_t payload_size = size - header_size;
+    size_t block_count = payload_size / 0x8000;
+    uint8_t block[0x8000];
+
+    for (size_t block_index = 0; block_index < block_count; ++block_index) {
+        uint8_t *src = data + header_size + (block_index * 0x8000);
+        uint8_t *dst = data + (block_index * 0x8000);
+
+        memcpy(block, src, sizeof(block));
+        memcpy(dst, block + 0x4000, 0x4000);
+        memcpy(dst + 0x4000, block, 0x4000);
+    }
+
+    return payload_size;
 }
 
 int rom_load(zsnes_emu_t *emu, const char *path) {
@@ -176,13 +240,20 @@ int rom_load(zsnes_emu_t *emu, const char *path) {
         return -1;
     }
 
+    emu->rom.header_size = rom_detect_copier_header_size((size_t)size);
+    emu->rom.reset_vector = 0x8000;
+    emu->rom.is_hirom = 0;
+
     /* De-interleave if necessary */
     if (emu->rom.format == ROM_FORMAT_SMC) {
-        if (rom_deinterleave(buffer, size) < 0) {
+        size_t new_size = rom_deinterleave(buffer, (size_t)size);
+        if (new_size == 0) {
             fprintf(stderr, "Error: Failed to de-interleave SMC ROM\n");
             free(buffer);
             return -1;
         }
+        size = (off_t)new_size;
+        emu->rom.header_size = 0;
     }
 
     /* Store ROM data and metadata */

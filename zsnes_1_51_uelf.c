@@ -1,6 +1,7 @@
 /*
  * ZSNES for EYN-OS
  * Main entry point and EYN-OS integration
+ * Package rebuild marker for the ROM read fix release.
  *
  * This file serves as the EYN-OS userland entry point. It initializes
  * the emulator, handles command-line arguments, and runs the main
@@ -23,6 +24,7 @@
 /* Global emulator state */
 static zsnes_emu_t *emu = NULL;
 static int gui_handle = 0;
+static uint16_t scaled_framebuffer[320 * 200];
 
 static void print_usage(void) {
     printf("Usage: zsnes_1_51 [ROM_PATH]\n\n");
@@ -95,26 +97,89 @@ static void cleanup_emulator(void) {
     emu = NULL;
 }
 
+static void scale_framebuffer_to_gui(const uint16_t *src, int src_w, int src_h, uint16_t *dst, int dst_w, int dst_h) {
+    if (!src || !dst || src_w <= 0 || src_h <= 0 || dst_w <= 0 || dst_h <= 0) {
+        return;
+    }
+
+    for (int y = 0; y < dst_h; ++y) {
+        int src_y = (y * src_h) / dst_h;
+        if (src_y >= src_h) {
+            src_y = src_h - 1;
+        }
+
+        for (int x = 0; x < dst_w; ++x) {
+            int src_x = (x * src_w) / dst_w;
+            if (src_x >= src_w) {
+                src_x = src_w - 1;
+            }
+
+            dst[y * dst_w + x] = src[src_y * src_w + src_x];
+        }
+    }
+}
+
 static int emulation_loop(void) {
-    /* Create GUI window using EYN-OS API
-     * Note: gui_create() creates a new tile; gui_attach() uses existing tile
-     * For an emulator, creating a new tile is appropriate
+    fprintf(stderr, "DEBUG: ENTERED emulation_loop()\n");
+    fflush(stderr);
+    
+    /* Attach to the current tile first so the emulator replaces the parent view.
+     * Fall back to a new GUI tile if attachment is not available.
      */
-    gui_handle = gui_create("ZSNES - Super Nintendo Emulator", "Running...");
+    fprintf(stderr, "DEBUG: Attempting gui_attach()...\n");
+    fflush(stderr);
+    gui_handle = gui_attach("ZSNES - Super Nintendo Emulator", "Running...");
+    fprintf(stderr, "DEBUG: gui_attach() returned handle=%d\n", gui_handle);
+    fflush(stderr);
+    
     if (gui_handle < 0) {
-        fprintf(stderr, "Error: Failed to create GUI window\n");
+        fprintf(stderr, "DEBUG: gui_attach failed, trying gui_create()...\n");
+        fflush(stderr);
+        gui_handle = gui_create("ZSNES - Super Nintendo Emulator", "Running...");
+        fprintf(stderr, "DEBUG: gui_create() returned handle=%d\n", gui_handle);
+        fflush(stderr);
+    }
+    if (gui_handle < 0) {
+        fprintf(stderr, "Error: Failed to create/attach GUI window (handle=%d)\n", gui_handle);
+        fflush(stderr);
         return -1;
     }
 
+    fprintf(stderr, "DEBUG: GUI window initialized with handle %d\n", gui_handle);
+    fflush(stderr);
+
+    int ret = gui_set_continuous_redraw(gui_handle, 1);
+    fprintf(stderr, "DEBUG: gui_set_continuous_redraw() returned %d\n", ret);
+    fflush(stderr);
+
+    gui_size_t content_size = {0, 0};
+    if (gui_get_content_size(gui_handle, &content_size) < 0 || content_size.w <= 0 || content_size.h <= 0) {
+        content_size.w = 320;
+        content_size.h = 200;
+    }
+    if (content_size.w > 320) {
+        content_size.w = 320;
+    }
+    if (content_size.h > 200) {
+        content_size.h = 200;
+    }
+
     int running = 1;
-    gui_event_t event;
+    int frame_count = 0;
 
     printf("Emulation started. Press Ctrl+Q or close window to quit.\n");
     printf("Controls: Arrow keys = D-Pad, Z=B, X=A, A=Y, S=X, Q=L, W=R, Enter=Start, Space=Select\n");
+    fflush(stdout);
 
     while (running) {
+        frame_count++;
+        
         /* Begin frame */
-        gui_begin(gui_handle);
+        fprintf(stderr, "DEBUG: Frame %d - calling gui_begin()...\n", frame_count);
+        fflush(stderr);
+        int begin_ret = gui_begin(gui_handle);
+        fprintf(stderr, "DEBUG: gui_begin() returned %d\n", begin_ret);
+        fflush(stderr);
 
         /* Execute CPU for one frame (~262 scanlines for NTSC) */
         if (cpu_execute_frame(emu) < 0) {
@@ -129,38 +194,44 @@ static int emulation_loop(void) {
         }
 
         /* Render PPU framebuffer */
-        if (ppu_render_frame(emu) < 0) {
+        fprintf(stderr, "DEBUG: Frame %d - calling ppu_render_frame()...\n", frame_count);
+        fflush(stderr);
+        int ppu_ret = ppu_render_frame(emu);
+        fprintf(stderr, "DEBUG: ppu_render_frame() returned %d, framebuffer ptr=%p\n", ppu_ret, (void *)emu->ppu.framebuffer);
+        fflush(stderr);
+        
+        if (ppu_ret < 0) {
             fprintf(stderr, "Warning: PPU rendering failed\n");
         }
 
-        /* Clear and render to GUI window
-         * The PPU framebuffer is 256x224 in 15-bit RGB
-         * We can blit it directly to the GUI using gui_blit_rgb565()
-         * (may need to convert 5555 to 565 format)
-         */
+        /* Clear and render to GUI window */
         gui_rgb_t bg_color = {0, 0, 0, 0};
+        fprintf(stderr, "DEBUG: Calling gui_clear()...\n");
+        fflush(stderr);
         gui_clear(gui_handle, &bg_color);
 
-        /* Blit the PPU framebuffer (256x224) scaled 2x to the window (512x448) */
-        gui_blit_rgb565_t blit = {
-            .src_w = 256,
-            .src_h = 224,
-            .pixels = (uint16_t *)emu->ppu.framebuffer,
-            .dst_w = 512,
-            .dst_h = 448,
-        };
-        gui_blit_rgb565(gui_handle, &blit);
+        /* Scale the PPU framebuffer to the GUI-supported blit size. */
+        scale_framebuffer_to_gui(
+            emu->ppu.framebuffer,
+            SNES_WIDTH,
+            SNES_HEIGHT,
+            scaled_framebuffer,
+            content_size.w,
+            content_size.h);
 
-        /* Draw frame counter and status */
-        gui_char_t char_cmd = {
-            .x = 10,
-            .y = 10,
-            .ch = 'F',
-            .r = 255,
-            .g = 255,
-            .b = 255,
+        /* Blit the scaled framebuffer into the content area. */
+        gui_blit_rgb565_t blit = {
+            .src_w = content_size.w,
+            .src_h = content_size.h,
+            .pixels = scaled_framebuffer,
+            .dst_w = 0,
+            .dst_h = 0,
         };
-        gui_draw_char(gui_handle, &char_cmd);
+        fprintf(stderr, "DEBUG: Calling gui_blit_rgb565() with framebuffer %p...\n", (void *)blit.pixels);
+        fflush(stderr);
+        int blit_ret = gui_blit_rgb565(gui_handle, &blit);
+        fprintf(stderr, "DEBUG: gui_blit_rgb565() returned %d\n", blit_ret);
+        fflush(stderr);
 
         /* Process input events */
         gui_event_t ev;
@@ -168,11 +239,11 @@ static int emulation_loop(void) {
             switch (ev.type) {
                 case GUI_EVENT_KEY:
                     /* Key press */
-                    cpu_handle_keydown(emu, (uint8_t)ev.a);
+                    cpu_handle_keydown(emu, ev.a);
                     break;
                 case GUI_EVENT_KEY_UP:
                     /* Key release */
-                    cpu_handle_keyup(emu, (uint8_t)ev.a);
+                    cpu_handle_keyup(emu, ev.a);
                     break;
                 case GUI_EVENT_CLOSE:
                     running = 0;
@@ -183,7 +254,17 @@ static int emulation_loop(void) {
         }
 
         /* Present frame to display */
-        gui_present(gui_handle);
+        fprintf(stderr, "DEBUG: Calling gui_present()...\n");
+        fflush(stderr);
+        int present_ret = gui_present(gui_handle);
+        fprintf(stderr, "DEBUG: gui_present() returned %d\n", present_ret);
+        fflush(stderr);
+
+        /* Print debug every 60 frames (~1 second) */
+        if (frame_count % 60 == 0) {
+            fprintf(stderr, "DEBUG: Emulation running, frame %d, GUI handle=%d\n", frame_count, gui_handle);
+            fflush(stderr);
+        }
 
         /* Approximate frame rate limiting */
         usleep(16000);  /* ~16ms for ~60 FPS */
@@ -212,8 +293,14 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    fprintf(stderr, "DEBUG: About to call emulation_loop()...\n");
+    fflush(stderr);
+    
     /* Run emulation loop */
     int result = emulation_loop();
+    
+    fprintf(stderr, "DEBUG: emulation_loop() returned %d\n", result);
+    fflush(stderr);
 
     /* Cleanup */
     cleanup_emulator();
